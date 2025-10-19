@@ -1,0 +1,7 @@
+{
+  "name": "SmartPark",
+  "description": "A smart parking application that allows users to find, reserve, and manage parking spots. It includes an admin panel for managing parking lots and viewing statistics.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
