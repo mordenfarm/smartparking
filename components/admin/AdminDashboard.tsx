@@ -7,6 +7,7 @@ import type { WeeklyReservations, RevenueData, ParkingLot, User, Reservation } f
 import { BarChartIcon, LineChartIcon, TrendingUpIcon, ConstructIcon, DocumentTextIcon, PersonIcon, SpinnerIcon, LayersIcon } from '../Icons';
 import ManageParkingModal from './ManageParkingModal';
 import UserDetailModal from './UserDetailModal';
+import ViewAllUsersModal from './ViewAllUsersModal';
 
 // Because recharts is loaded via CDN, we need to declare it to TypeScript
 declare const Recharts: any;
@@ -129,6 +130,7 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   const [isSettingUpDb, setIsSettingUpDb] = useState(false);
   const [setupMessage, setSetupMessage] = useState('');
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [isViewUsersModalOpen, setIsViewUsersModalOpen] = useState(false);
 
   const handleDbSetup = useCallback(async () => {
     setIsSettingUpDb(true);
@@ -175,8 +177,11 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
       setSearchResults([]);
       return;
     }
+    const lowerCaseQuery = searchQuery.toLowerCase();
     const filteredUsers = users.filter(user =>
-      user.carPlate.toLowerCase().includes(searchQuery.toLowerCase())
+      user.username.toLowerCase().includes(lowerCaseQuery) ||
+      user.email.toLowerCase().includes(lowerCaseQuery) ||
+      user.carPlate.toLowerCase().includes(lowerCaseQuery)
     );
     setSearchResults(filteredUsers);
   }, [searchQuery, users]);
@@ -197,6 +202,11 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
     setSelectedUser(user);
     setSearchQuery('');
     setSearchResults([]);
+  };
+
+  const handleSelectUserFromModal = (user: User) => {
+    setIsViewUsersModalOpen(false);
+    setSelectedUser(user);
   };
 
   const totalSlots = parkingLots.reduce((acc, lot) => acc + lot.slots.length, 0);
@@ -241,29 +251,38 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                     </DashboardCard>
 
                     <DashboardCard title="User Management" icon={<PersonIcon className="w-4 h-4 text-white"/>} className="animate-slide-in-7">
-                        <p className="text-gray-400 text-sm mb-2">Search for users by their number plate.</p>
-                        <div className="relative">
-                            <input 
-                                type="text" 
-                                placeholder="Search by number plate..." 
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full bg-slate-900/50 p-2 rounded-md border border-gray-700 focus:outline-none focus:ring-2 focus:ring-cyan-500" 
-                            />
-                            {searchResults.length > 0 && (
-                                <div className="absolute top-full left-0 right-0 mt-2 bg-slate-800 rounded-lg shadow-lg border border-slate-700 z-10 max-h-48 overflow-y-auto animate-fade-in-fast">
-                                    {searchResults.map(user => (
-                                        <button 
-                                            key={user.uid} 
-                                            onClick={() => handleSelectUser(user)}
-                                            className="w-full text-left p-3 hover:bg-indigo-500/20 flex justify-between items-center"
-                                        >
-                                            <span>{user.username}</span>
-                                            <span className="font-mono text-cyan-400">{user.carPlate}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
+                        <p className="text-gray-400 text-sm mb-2">Search for users by their name, email, or number plate.</p>
+                        <div className="flex gap-2 items-center">
+                            <div className="relative flex-grow">
+                                <input 
+                                    type="text" 
+                                    placeholder="Search by name, email, or plate..." 
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full bg-slate-900/50 p-2 rounded-md border border-gray-700 focus:outline-none focus:ring-2 focus:ring-cyan-500" 
+                                />
+                                {searchResults.length > 0 && (
+                                    <div className="absolute top-full left-0 right-0 mt-2 bg-slate-800 rounded-lg shadow-lg border border-slate-700 z-10 max-h-48 overflow-y-auto animate-fade-in-fast">
+                                        {searchResults.map(user => (
+                                            <button 
+                                                key={user.uid} 
+                                                onClick={() => handleSelectUser(user)}
+                                                className="w-full text-left p-3 hover:bg-indigo-500/20 flex justify-between items-center"
+                                            >
+                                                <span>{user.username}</span>
+                                                <span className="font-mono text-cyan-400">{user.carPlate}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            <button
+                                onClick={() => setIsViewUsersModalOpen(true)}
+                                className="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 px-4 rounded-md transition-colors"
+                                title="View All Users"
+                            >
+                                View All
+                            </button>
                         </div>
                     </DashboardCard>
 
@@ -308,6 +327,12 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
         onClose={() => setSelectedUser(null)}
         user={selectedUser}
         reservations={reservations.filter(r => r.userId === selectedUser?.uid)}
+    />
+    <ViewAllUsersModal
+        isOpen={isViewUsersModalOpen}
+        onClose={() => setIsViewUsersModalOpen(false)}
+        users={users}
+        onSelectUser={handleSelectUserFromModal}
     />
     <style>{`
     .stat-widget { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; perspective: 900px; }
