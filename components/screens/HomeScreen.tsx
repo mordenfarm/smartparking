@@ -1,9 +1,10 @@
+
 import React from 'react';
 import { CarIcon, WalletIcon, LocationIcon, CheckmarkCircleIcon, CloseCircleIcon, ClockIcon } from '../Icons';
-import type { User, ParkingLot } from '../../types';
+import type { UserWithReservations, ParkingLot } from '../../types';
 
 interface HomeScreenProps {
-  user: User | null;
+  user: UserWithReservations | null;
   parkingLots: ParkingLot[];
   onFindParking: () => void;
   onEditDetails: () => void;

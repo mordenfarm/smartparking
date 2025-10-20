@@ -1,8 +1,10 @@
+
 import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { setupInitialData } from '../../services/setupDb';
 import type { WeeklyReservations, RevenueData, ParkingLot, User, Reservation } from '../../types';
-import { BarChartIcon, LineChartIcon, TrendingUpIcon, ConstructIcon, DocumentTextIcon, PersonIcon, SpinnerIcon } from '../Icons';
+import { BarChartIcon, LineChartIcon, TrendingUpIcon, ConstructIcon, DocumentTextIcon, PersonIcon, SpinnerIcon, LayersIcon } from '../Icons';
 import ManageParkingModal from './ManageParkingModal';
 import UserDetailModal from './UserDetailModal';
 
@@ -124,8 +126,9 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   const [searchResults, setSearchResults] = useState<User[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSettingUpDb, setIsSettingUpDb] = useState(false);
+  const [setupMessage, setSetupMessage] = useState('');
 
-  // Fetch all data on mount
   useEffect(() => {
     const unsubParkingLots = onSnapshot(collection(db, 'parkingLots'), (snapshot) => {
         setParkingLots(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ParkingLot)));
@@ -134,7 +137,8 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
         setReservations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Reservation)));
     });
     const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-        setUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as User)));
+        const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as User));
+        setUsers(fetchedUsers);
         setIsLoading(false);
     });
 
@@ -145,7 +149,6 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
     }
   }, []);
 
-  // Handle User Search
   useEffect(() => {
     if (searchQuery.trim() === '') {
       setSearchResults([]);
@@ -162,12 +165,24 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
     setSearchQuery('');
     setSearchResults([]);
   };
+  
+  const handleDbSetup = async () => {
+    setIsSettingUpDb(true);
+    setSetupMessage('');
+    try {
+        const message = await setupInitialData();
+        setSetupMessage(message);
+    } catch (error: any) {
+        setSetupMessage(error.message || 'An unknown error occurred.');
+    } finally {
+        setIsSettingUpDb(false);
+    }
+  };
 
   const totalSlots = parkingLots.reduce((acc, lot) => acc + lot.slots.length, 0);
   const occupiedSlots = parkingLots.reduce((acc, lot) => acc + lot.slots.filter(s => s.isOccupied).length, 0);
   const occupancyPercentage = totalSlots > 0 ? Math.round((occupiedSlots / totalSlots) * 100) : 0;
   
-  // Basic stats calculation (can be improved with more complex queries/functions)
   const monthlyRevenue = reservations.reduce((acc, r) => acc + r.amountPaid, 0);
   const weeklyReservationsData: WeeklyReservations[] = [
       { day: 'Sun', reservations: reservations.filter(r => r.startTime.toDate().getDay() === 0).length },
@@ -189,14 +204,12 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
         
         {isLoading ? <SpinnerIcon className="w-10 h-10 mx-auto mt-10" /> : (
             <>
-                {/* Stat Pills Section */}
                 <div className="stat-widget grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 !p-0">
                     <div className="animate-slide-in-2"><StatPill variant="variant-green" percentage={78} value={`$${monthlyRevenue.toLocaleString()}`} label="Total Revenue (USD)" /></div>
                     <div className="animate-slide-in-3"><StatPill variant="variant-pink" percentage={65} value={Math.max(...weeklyReservationsData.map(d => d.reservations)) || 0} label="Peak Day Reservations" /></div>
                     <div className="animate-slide-in-4"><StatPill variant="variant-green" percentage={occupancyPercentage} value={`${occupiedSlots}/${totalSlots}`} label="Current Occupancy" /></div>
                 </div>
                 
-                {/* Dashboard Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <DashboardCard title="Weekly Reservations" icon={<TrendingUpIcon />} fullWidth={true} className="animate-slide-in-5">
                         <StatisticsChart data={weeklyReservationsData} />
@@ -234,12 +247,25 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                         </div>
                     </DashboardCard>
 
-                    <DashboardCard title="Generate Reports" icon={<DocumentTextIcon />} fullWidth={true} className="animate-slide-in-8">
+                    <DashboardCard title="Generate Reports" icon={<DocumentTextIcon />} className="animate-slide-in-8">
                         <p className="text-gray-400 text-sm mb-4">Download detailed reports for revenue and reservation history.</p>
-                        <div className="flex flex-col sm:flex-row gap-4">
-                            <button className="flex-1 bg-gray-700/50 hover:bg-gray-700 font-semibold py-2 px-4 rounded-lg">Revenue Report</button>
-                            <button className="flex-1 bg-gray-700/50 hover:bg-gray-700 font-semibold py-2 px-4 rounded-lg">Reservations Report</button>
-                        </div>
+                        <button className="w-full bg-gray-700/50 hover:bg-gray-700 font-semibold py-2 px-4 rounded-lg">Download Reports</button>
+                    </DashboardCard>
+                    
+                    <DashboardCard title="Database Setup" icon={<LayersIcon className="w-4 h-4 text-white"/>} className="animate-slide-in-9">
+                        <p className="text-gray-400 text-sm mb-4">
+                            First time setup? Click here to populate the database with sample parking lots.
+                        </p>
+                        <button 
+                            onClick={handleDbSetup} 
+                            disabled={isSettingUpDb}
+                            className="w-full bg-emerald-600 hover:bg-emerald-500 font-semibold py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-wait flex items-center justify-center"
+                        >
+                            {isSettingUpDb ? <SpinnerIcon /> : 'Initialize Database'}
+                        </button>
+                        {setupMessage && (
+                            <p className="text-center text-sm text-cyan-400 mt-3">{setupMessage}</p>
+                        )}
                     </DashboardCard>
                 </div>
             </>
@@ -255,6 +281,7 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
         isOpen={!!selectedUser}
         onClose={() => setSelectedUser(null)}
         user={selectedUser}
+        reservations={reservations.filter(r => r.userId === selectedUser?.uid)}
     />
     <style>{`
     .stat-widget { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; perspective: 900px; }

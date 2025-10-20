@@ -1,10 +1,10 @@
+
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
-import { doc, getDoc, onSnapshot, collection, setDoc } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
-import { auth, db, functions } from './services/firebase';
+import { doc, getDoc, onSnapshot, collection, setDoc, runTransaction, query, where, orderBy, updateDoc } from 'firebase/firestore';
+import { auth, db } from './services/firebase';
 
-import type { ActiveTab, Theme, User, ParkingLot, Reservation } from './types';
+import type { ActiveTab, Theme, User, ParkingLot, Reservation, UserWithReservations } from './types';
 import Header from './components/Header';
 import Dock from './components/Dock';
 import HomeScreen from './components/screens/HomeScreen';
@@ -20,6 +20,7 @@ import { SpinnerIcon } from './components/Icons';
 
 const App = () => {
   const [user, setUser] = useState<User | null | 'loading'>('loading');
+  const [userReservations, setUserReservations] = useState<Reservation[]>([]);
   const [parkingLots, setParkingLots] = useState<ParkingLot[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [theme, setTheme] = useState<Theme>('dark');
@@ -38,31 +39,26 @@ const App = () => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       if (firebaseUser) {
-        // Check for admin custom claims
         const tokenResult = await firebaseUser.getIdTokenResult();
         if (tokenResult.claims.admin) {
           setIsAdmin(true);
         }
 
-        // Fetch user profile from Firestore
         const userDocRef = doc(db, 'users', firebaseUser.uid);
         const userDocSnap = await getDoc(userDocRef);
         
         if (userDocSnap.exists()) {
           const userData = userDocSnap.data();
-           // In a real app, reservations would be a subcollection or separate query
-          const fullUser: User = {
+          const fetchedUser: User = {
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
             username: userData.username || firebaseUser.displayName || 'New User',
             carPlate: userData.carPlate || '',
             ecocashNumber: userData.ecocashNumber || '',
-            reservations: [], // This would be fetched separately
           };
-          setUser(fullUser);
+          setUser(fetchedUser);
         } else {
-          // Create a new user document if it doesn't exist
-          const newUser: Omit<User, 'reservations'> = {
+          const newUser: User = {
             uid: firebaseUser.uid,
             email: firebaseUser.email!,
             username: firebaseUser.displayName || 'New User',
@@ -70,7 +66,7 @@ const App = () => {
             ecocashNumber: '',
           };
           await setDoc(userDocRef, newUser);
-          setUser({ ...newUser, reservations: [] });
+          setUser(newUser);
         }
       } else {
         setUser(null);
@@ -90,6 +86,26 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
+  // New useEffect to listen for reservations for the current user
+  useEffect(() => {
+    if (user && user !== 'loading') {
+        const q = query(
+            collection(db, 'reservations'),
+            where('userId', '==', user.uid),
+            orderBy('startTime', 'desc')
+        );
+
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            const res = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Reservation[];
+            setUserReservations(res);
+        });
+
+        return () => unsubscribe();
+    } else {
+        setUserReservations([]); // Clear reservations on logout
+    }
+  }, [user]);
+
   const handleLogout = () => {
     signOut(auth);
     setIsAdmin(false);
@@ -104,7 +120,7 @@ const App = () => {
   const handleSaveUserDetails = async (details: { carPlate: string; ecocashNumber: string }) => {
     if (user && user !== 'loading') {
       const userDocRef = doc(db, 'users', user.uid);
-      await setDoc(userDocRef, { ...details }, { merge: true });
+      await updateDoc(userDocRef, { ...details });
       setUser(prevUser => {
         if (!prevUser || prevUser === 'loading') return null;
         return { ...prevUser, ...details };
@@ -114,66 +130,112 @@ const App = () => {
   };
 
   const handleConfirmReservation = async (lotId: string, slotId: string, hours: number) => {
-      try {
-        const makeReservation = httpsCallable(functions, 'handleReservationPayment');
-        await makeReservation({ lotId, slotId, hours });
-        
-        // UI can optimistically update or wait for Firestore listener to catch changes.
-        // For now, let's trigger routing.
-        const userLocation = geolocation.data?.coords;
-        const destinationLot = parkingLots.find(l => l.id === lotId);
+    if (!user || user === 'loading') {
+      alert("You must be logged in to make a reservation.");
+      return;
+    }
 
-        if (userLocation && destinationLot) {
-            setRoute({
-                from: [userLocation.latitude, userLocation.longitude],
-                to: [destinationLot.location.latitude, destinationLot.location.longitude]
-            });
-            setActiveTab('map');
+    const lotDocRef = doc(db, 'parkingLots', lotId);
+    try {
+      await runTransaction(db, async (transaction) => {
+        const lotDoc = await transaction.get(lotDocRef);
+        if (!lotDoc.exists()) {
+          throw new Error("Parking lot does not exist!");
         }
-      } catch (error) {
-        console.error("Reservation failed:", error);
-        alert("Could not make reservation. Please try again.");
+
+        const lotData = lotDoc.data() as Omit<ParkingLot, 'id'>;
+        const slotIndex = lotData.slots.findIndex(s => s.id === slotId);
+
+        if (slotIndex === -1) {
+          throw new Error("Parking slot not found!");
+        }
+
+        if (lotData.slots[slotIndex].isOccupied) {
+          throw new Error("This slot has just been taken! Please select another one.");
+        }
+
+        lotData.slots[slotIndex].isOccupied = true;
+        
+        const startTime = new Date();
+        const endTime = new Date(startTime.getTime() + hours * 60 * 60 * 1000);
+
+        transaction.update(lotDocRef, { slots: lotData.slots });
+
+        const newReservationRef = doc(collection(db, 'reservations'));
+        const newReservation = {
+          userId: user.uid,
+          parkingLotId: lotId,
+          parkingLotName: lotData.name,
+          slotId: slotId,
+          startTime: startTime,
+          endTime: endTime,
+          durationHours: hours,
+          amountPaid: hours * lotData.hourlyRate,
+          status: 'active' as const,
+        };
+        transaction.set(newReservationRef, newReservation);
+      });
+
+      console.log("Reservation successful!");
+      const userLocation = geolocation.data?.coords;
+      const destinationLot = parkingLots.find(l => l.id === lotId);
+
+      if (userLocation && destinationLot) {
+        setRoute({
+          from: [userLocation.latitude, userLocation.longitude],
+          to: [destinationLot.location.latitude, destinationLot.location.longitude]
+        });
+        setActiveTab('map');
       }
+
+    } catch (error) {
+      console.error("Reservation failed:", error);
+      alert(`Could not make reservation: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
   
   const handleArrived = () => {
-      setRoute(null);
+    setRoute(null);
   };
   
   if (user === 'loading') {
-      return (
-          <div className="h-screen w-screen flex items-center justify-center bg-slate-950">
-              <SpinnerIcon className="w-12 h-12 text-indigo-400" />
-          </div>
-      );
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-slate-950">
+        <SpinnerIcon className="w-12 h-12 text-indigo-400" />
+      </div>
+    );
   }
+
+  const fullUserWithReservations: UserWithReservations | null = (user && user !== 'loading') 
+    ? { ...user, reservations: userReservations } 
+    : null;
 
   const renderScreen = () => {
     switch (activeTab) {
       case 'home':
         return <HomeScreen 
-                  user={user} 
+                  user={fullUserWithReservations} 
                   parkingLots={parkingLots} 
                   onFindParking={() => setActiveTab('map')} 
                   onEditDetails={() => setIsUserDetailsModalOpen(true)}
                 />;
       case 'map':
         return <MapScreen 
-                    parkingLots={parkingLots} 
-                    onConfirmReservation={handleConfirmReservation}
-                    userLocation={geolocation.data}
-                    route={route}
-                    onArrived={handleArrived}
-                    isLoggedIn={!!user}
-                    onLoginSuccess={() => { /* onAuthStateChanged handles this */ }}
+                  parkingLots={parkingLots} 
+                  onConfirmReservation={handleConfirmReservation}
+                  userLocation={geolocation.data}
+                  route={route}
+                  onArrived={handleArrived}
+                  isLoggedIn={!!user}
+                  onLoginSuccess={() => { /* onAuthStateChanged handles this */ }}
                 />;
       case 'notifications':
         return <NotificationsScreen user={user} />;
       case 'settings':
-        return <SettingsScreen user={user} onThemeChange={setTheme} onLogout={handleLogout} onAdminLogin={() => setIsAdminLoginModalOpen(true)} onUserDetailsUpdate={setUser} />;
+        return <SettingsScreen user={user} onThemeChange={setTheme} onLogout={handleLogout} onAdminLogin={() => setIsAdminLoginModalOpen(true)} onUserDetailsUpdate={updatedUser => setUser(updatedUser)} />;
       default:
         return <HomeScreen 
-                  user={user} 
+                  user={fullUserWithReservations} 
                   parkingLots={parkingLots} 
                   onFindParking={() => setActiveTab('map')} 
                   onEditDetails={() => setIsUserDetailsModalOpen(true)}
@@ -203,7 +265,7 @@ const App = () => {
         onSuccess={handleAdminLoginSuccess}
       />
 
-      {user && <UserDetailsModal
+      {user && user !== 'loading' && <UserDetailsModal
         isOpen={isUserDetailsModalOpen}
         onClose={() => setIsUserDetailsModalOpen(false)}
         onSave={handleSaveUserDetails}

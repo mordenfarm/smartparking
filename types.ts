@@ -1,3 +1,4 @@
+
 import type { Timestamp, GeoPoint } from 'firebase/firestore';
 
 export type ActiveTab = 'home' | 'map' | 'notifications' | 'settings';
@@ -6,6 +7,7 @@ export type Theme = 'dark' | 'light' | 'pink' | 'green' | 'navy' | 'purple';
 
 export interface Reservation {
   id: string;
+  userId: string;
   parkingLotId: string;
   parkingLotName: string;
   slotId: string;
@@ -22,7 +24,11 @@ export interface User {
   email: string;
   carPlate: string;
   ecocashNumber: string;
-  reservations: Reservation[];
+}
+
+// This represents the user object combined with their reservations for use in components
+export interface UserWithReservations extends User {
+    reservations: Reservation[];
 }
 
 export interface ParkingSlot {

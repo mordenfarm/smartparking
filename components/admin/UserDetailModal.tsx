@@ -1,3 +1,4 @@
+
 import React from 'react';
 import type { User, Reservation } from '../../types';
 import { PersonIcon, CarIcon, WalletIcon, ClockIcon, LocationIcon } from '../Icons';
@@ -6,14 +7,12 @@ interface UserDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: User | null;
+  reservations: Reservation[];
 }
 
-const UserDetailModal = ({ isOpen, onClose, user }: UserDetailModalProps) => {
+const UserDetailModal = ({ isOpen, onClose, user, reservations }: UserDetailModalProps) => {
   if (!isOpen || !user) return null;
   
-  // In a full app, user.reservations would be populated by a separate query
-  const reservations: Reservation[] = (user as any).parkingHistory || user.reservations || [];
-
   return (
     <div 
       className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in"

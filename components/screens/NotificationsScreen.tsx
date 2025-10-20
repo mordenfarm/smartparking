@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot, orderBy, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -58,9 +59,11 @@ const NotificationsScreen = ({ user }: { user: User | null }) => {
   useEffect(() => {
     if (!user) {
         setIsLoading(false);
+        setNotifications([]);
         return;
     };
     
+    setIsLoading(true);
     const q = query(
         collection(db, 'notifications'), 
         where('userId', '==', user.uid),
@@ -71,6 +74,9 @@ const NotificationsScreen = ({ user }: { user: User | null }) => {
         const notifs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Notification[];
         setNotifications(notifs);
         setIsLoading(false);
+    }, (error) => {
+        console.error("Error fetching notifications: ", error);
+        setIsLoading(false);
     });
 
     return () => unsubscribe();
@@ -78,7 +84,11 @@ const NotificationsScreen = ({ user }: { user: User | null }) => {
   }, [user]);
 
   const handleDelete = async (id: string) => {
-    await deleteDoc(doc(db, 'notifications', id));
+    try {
+      await deleteDoc(doc(db, 'notifications', id));
+    } catch (error) {
+      console.error("Error deleting notification: ", error);
+    }
   };
 
   const handleMarkAsLeft = (id: string) => {
