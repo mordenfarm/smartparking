@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
-import { doc, getDoc, onSnapshot, collection, setDoc, runTransaction, query, where, orderBy, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, collection, setDoc, runTransaction, query, where, orderBy, updateDoc, addDoc, Timestamp } from 'firebase/firestore';
 import { auth, db } from './services/firebase';
 
-import type { ActiveTab, Theme, User, ParkingLot, Reservation, UserWithReservations } from './types';
+import type { ActiveTab, Theme, User, ParkingLot, Reservation, UserWithReservations, Notification } from './types';
 import Header from './components/Header';
 import Dock from './components/Dock';
 import HomeScreen from './components/screens/HomeScreen';
@@ -144,6 +144,8 @@ const App = () => {
 
     const lotDocRef = doc(db, 'parkingLots', lotId);
     try {
+      let newReservationData: Omit<Reservation, 'id'> | null = null;
+      
       await runTransaction(db, async (transaction) => {
         const lotDoc = await transaction.get(lotDocRef);
         if (!lotDoc.exists()) {
@@ -169,21 +171,39 @@ const App = () => {
         transaction.update(lotDocRef, { slots: lotData.slots });
 
         const newReservationRef = doc(collection(db, 'reservations'));
-        const newReservation = {
+        newReservationData = {
           userId: user.uid,
           parkingLotId: lotId,
           parkingLotName: lotData.name,
           slotId: slotId,
-          startTime: startTime,
-          endTime: endTime,
+          startTime: Timestamp.fromDate(startTime),
+          endTime: Timestamp.fromDate(endTime),
           durationHours: hours,
           amountPaid: hours * lotData.hourlyRate,
           status: 'active' as const,
         };
-        transaction.set(newReservationRef, newReservation);
+        transaction.set(newReservationRef, newReservationData);
       });
 
       console.log("Reservation successful!");
+
+      // Send notification after transaction is successful
+      if (newReservationData) {
+        const newNotification: Omit<Notification, 'id'> = {
+            userId: user.uid,
+            type: 'RESERVED',
+            message: `You have successfully reserved spot ${slotId.toUpperCase()} at ${newReservationData.parkingLotName}.`,
+            isRead: false,
+            timestamp: Timestamp.now(),
+            data: {
+                carPlate: user.carPlate,
+                amountPaid: newReservationData.amountPaid,
+                hoursLeft: newReservationData.durationHours,
+            }
+        };
+        await addDoc(collection(db, 'notifications'), newNotification);
+      }
+
       const userLocation = geolocation.data?.coords;
       const destinationLot = parkingLots.find(l => l.id === lotId);
 

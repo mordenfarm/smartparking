@@ -33,9 +33,8 @@ const ReservationModal = ({ onClose, onConfirm, lot }: ReservationModalProps) =>
   const handleSubmit = () => {
     if (!selectedSlotId) return;
     setStep('processing');
-    setTimeout(() => {
-        onConfirm(lot.id, selectedSlotId, hours);
-    }, 1500); 
+    // Call the confirm function without the artificial delay
+    onConfirm(lot.id, selectedSlotId, hours);
   };
 
   return (
@@ -122,8 +121,8 @@ const ReservationModal = ({ onClose, onConfirm, lot }: ReservationModalProps) =>
 
             {step === 'processing' && (
               <div className="p-6 flex flex-col items-center justify-center min-h-[250px]">
-                <SpinnerIcon className="w-12 h-12 text-indigo-400 mb-4" />
-                <p className="text-lg font-semibold">Processing your reservation...</p>
+                <div className="loader"></div>
+                <p className="text-lg font-semibold mt-4">Processing your reservation...</p>
                 <p className="text-slate-400 text-sm">Please wait a moment.</p>
               </div>
             )}
