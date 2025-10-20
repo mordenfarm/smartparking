@@ -17,7 +17,8 @@ interface UserCardProps {
   onSelect: () => void;
 }
 
-const UserCard = ({ user, onSelect }: UserCardProps) => (
+// FIX: Use React.FC to correctly type the functional component, resolving the issue with the 'key' prop.
+const UserCard: React.FC<UserCardProps> = ({ user, onSelect }) => (
     <div className="bg-slate-900/50 p-4 rounded-lg flex justify-between items-center transition-colors hover:bg-slate-800/60">
         <div>
             <p className="font-semibold text-white flex items-center gap-2">
