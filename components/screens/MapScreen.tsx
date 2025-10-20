@@ -316,7 +316,7 @@ const MapScreen = ({ parkingLots, onConfirmReservation, userLocation, route, onA
 
   return (
     <div className="relative h-full w-full">
-      <div ref={mapRef} className="absolute inset-0 bottom-24 bg-gray-200" />
+      <div ref={mapRef} className="absolute inset-0 bottom-28 bg-gray-200" />
        
        <div className="absolute top-20 left-4 right-4 z-[401]">
           {renderTopView()}

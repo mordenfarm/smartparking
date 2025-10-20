@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, onSnapshot, collection, setDoc, runTransaction, query, where, orderBy, updateDoc } from 'firebase/firestore';
@@ -17,6 +16,7 @@ import AdminDashboard from './components/admin/AdminDashboard';
 import UserDetailsModal from './components/UserDetailsModal';
 import { useGeolocation } from './hooks/useGeolocation';
 import { SpinnerIcon } from './components/Icons';
+import { createDefaultAdmin } from './services/setupAdmin';
 
 const App = () => {
   const [user, setUser] = useState<User | null | 'loading'>('loading');
@@ -34,14 +34,21 @@ const App = () => {
   useEffect(() => {
     document.body.className = `theme-${theme} bg-slate-950 font-sans`;
   }, [theme]);
+
+  // Ensure the default admin user exists on first app load
+  useEffect(() => {
+    createDefaultAdmin();
+  }, []);
   
   // Listen for auth state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       if (firebaseUser) {
-        const tokenResult = await firebaseUser.getIdTokenResult();
-        if (tokenResult.claims.admin) {
+        // Simplified admin check based on email instead of custom claims
+        if (firebaseUser.email === 'admin@gmail.com') {
           setIsAdmin(true);
+        } else {
+          setIsAdmin(false);
         }
 
         const userDocRef = doc(db, 'users', firebaseUser.uid);

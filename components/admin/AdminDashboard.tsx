@@ -1,8 +1,8 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { collection, onSnapshot, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { setupInitialData } from '../../services/setupDb';
+import { generateReport } from '../../services/reportGenerator';
 import type { WeeklyReservations, RevenueData, ParkingLot, User, Reservation } from '../../types';
 import { BarChartIcon, LineChartIcon, TrendingUpIcon, ConstructIcon, DocumentTextIcon, PersonIcon, SpinnerIcon, LayersIcon } from '../Icons';
 import ManageParkingModal from './ManageParkingModal';
@@ -128,6 +128,20 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSettingUpDb, setIsSettingUpDb] = useState(false);
   const [setupMessage, setSetupMessage] = useState('');
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+
+  const handleDbSetup = useCallback(async () => {
+    setIsSettingUpDb(true);
+    setSetupMessage('Checking database...');
+    try {
+        const message = await setupInitialData();
+        setSetupMessage(message);
+    } catch (error: any) {
+        setSetupMessage(error.message || 'An unknown error occurred.');
+    } finally {
+        setIsSettingUpDb(false);
+    }
+  }, []);
 
   useEffect(() => {
     const unsubParkingLots = onSnapshot(collection(db, 'parkingLots'), (snapshot) => {
@@ -149,6 +163,13 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
     }
   }, []);
 
+  // Automatic DB Seeding Effect
+  useEffect(() => {
+    if (!isLoading && parkingLots.length === 0) {
+      handleDbSetup();
+    }
+  }, [isLoading, parkingLots, handleDbSetup]);
+
   useEffect(() => {
     if (searchQuery.trim() === '') {
       setSearchResults([]);
@@ -159,24 +180,23 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
     );
     setSearchResults(filteredUsers);
   }, [searchQuery, users]);
+  
+  const handleGenerateReport = async () => {
+    setIsGeneratingReport(true);
+    try {
+      generateReport(reservations, users, parkingLots);
+    } catch (error) {
+      console.error("Failed to generate report:", error);
+      alert("There was an error generating the report. Please check the console.");
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
 
   const handleSelectUser = (user: User) => {
     setSelectedUser(user);
     setSearchQuery('');
     setSearchResults([]);
-  };
-  
-  const handleDbSetup = async () => {
-    setIsSettingUpDb(true);
-    setSetupMessage('');
-    try {
-        const message = await setupInitialData();
-        setSetupMessage(message);
-    } catch (error: any) {
-        setSetupMessage(error.message || 'An unknown error occurred.');
-    } finally {
-        setIsSettingUpDb(false);
-    }
   };
 
   const totalSlots = parkingLots.reduce((acc, lot) => acc + lot.slots.length, 0);
@@ -249,7 +269,13 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
 
                     <DashboardCard title="Generate Reports" icon={<DocumentTextIcon />} className="animate-slide-in-8">
                         <p className="text-gray-400 text-sm mb-4">Download detailed reports for revenue and reservation history.</p>
-                        <button className="w-full bg-gray-700/50 hover:bg-gray-700 font-semibold py-2 px-4 rounded-lg">Download Reports</button>
+                        <button 
+                            onClick={handleGenerateReport}
+                            disabled={isGeneratingReport}
+                            className="w-full bg-slate-700 hover:bg-slate-600 font-semibold py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-wait flex items-center justify-center"
+                        >
+                            {isGeneratingReport ? <SpinnerIcon /> : 'Download Reports'}
+                        </button>
                     </DashboardCard>
                     
                     <DashboardCard title="Database Setup" icon={<LayersIcon className="w-4 h-4 text-white"/>} className="animate-slide-in-9">
