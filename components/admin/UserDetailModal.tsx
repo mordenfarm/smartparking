@@ -6,13 +6,11 @@ interface UserDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: User | null;
+  reservations: Reservation[]; // Add this line
 }
 
-const UserDetailModal = ({ isOpen, onClose, user }: UserDetailModalProps) => {
+const UserDetailModal = ({ isOpen, onClose, user, reservations }: UserDetailModalProps) => {
   if (!isOpen || !user) return null;
-  
-  // In a full app, user.reservations would be populated by a separate query
-  const reservations: Reservation[] = (user as any).parkingHistory || user.reservations || [];
 
   return (
     <div 

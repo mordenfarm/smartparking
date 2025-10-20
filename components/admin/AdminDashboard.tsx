@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { setupInitialData } from '../../services/setupDb';
 import type { WeeklyReservations, RevenueData, ParkingLot, User, Reservation } from '../../types';
-import { BarChartIcon, LineChartIcon, TrendingUpIcon, ConstructIcon, DocumentTextIcon, PersonIcon, SpinnerIcon } from '../Icons';
+import { BarChartIcon, LineChartIcon, TrendingUpIcon, ConstructIcon, DocumentTextIcon, PersonIcon, SpinnerIcon, LayersIcon } from '../Icons';
 import ManageParkingModal from './ManageParkingModal';
 import UserDetailModal from './UserDetailModal';
 
@@ -124,6 +125,21 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   const [searchResults, setSearchResults] = useState<User[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSettingUpDb, setIsSettingUpDb] = useState(false);
+  const [setupMessage, setSetupMessage] = useState('');
+
+const handleDbSetup = async () => {
+  setIsSettingUpDb(true);
+  setSetupMessage('');
+  try {
+      const message = await setupInitialData();
+      setSetupMessage(message);
+  } catch (error: any) {
+      setSetupMessage(error.message || 'An unknown error occurred.');
+  } finally {
+      setIsSettingUpDb(false);
+  }
+};
 
   // Fetch all data on mount
   useEffect(() => {
@@ -241,6 +257,21 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                             <button className="flex-1 bg-gray-700/50 hover:bg-gray-700 font-semibold py-2 px-4 rounded-lg">Reservations Report</button>
                         </div>
                     </DashboardCard>
+<DashboardCard title="Database Setup" icon={<LayersIcon className="w-4 h-4 text-white"/>} className="animate-slide-in-9">
+    <p className="text-gray-400 text-sm mb-4">
+        First time setup? Click here to populate the database with sample parking lots.
+    </p>
+    <button
+        onClick={handleDbSetup}
+        disabled={isSettingUpDb}
+        className="w-full bg-emerald-600 hover:bg-emerald-500 font-semibold py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-wait flex items-center justify-center"
+    >
+        {isSettingUpDb ? <SpinnerIcon /> : 'Initialize Database'}
+    </button>
+    {setupMessage && (
+        <p className="text-center text-sm text-cyan-400 mt-3">{setupMessage}</p>
+    )}
+</DashboardCard>
                 </div>
             </>
         )}
@@ -251,11 +282,12 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
         parkingLots={parkingLots}
         onSave={() => {}}
     />
-    <UserDetailModal
-        isOpen={!!selectedUser}
-        onClose={() => setSelectedUser(null)}
-        user={selectedUser}
-    />
+<UserDetailModal
+    isOpen={!!selectedUser}
+    onClose={() => setSelectedUser(null)}
+    user={selectedUser}
+    reservations={reservations.filter(r => r.userId === selectedUser?.uid)} // Ensure this line is present
+/>
     <style>{`
     .stat-widget { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; perspective: 900px; }
     .stat-widget .stat-pill { width: 100%; height: 96px; border-radius: 48px; background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.02); display: flex; align-items: center; gap: 16px; padding: 14px 20px; position: relative; transform-style: preserve-3d; transition: transform 300ms cubic-bezier(0.2, 0.9, 0.3, 1), box-shadow 300ms; cursor: pointer; user-select: none; border: none; outline: none; background-clip: padding-box; }
