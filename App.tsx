@@ -19,7 +19,8 @@ import { useGeolocation } from './hooks/useGeolocation';
 import { SpinnerIcon } from './components/Icons';
 
 const App = () => {
-  const [user, setUser] = useState<User | null | 'loading'>('loading');
+  const [user, setUser] = useState<Omit<User, 'reservations'> | null | 'loading'>('loading');
+  const [userReservations, setUserReservations] = useState<Reservation[]>([]);
   const [parkingLots, setParkingLots] = useState<ParkingLot[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [theme, setTheme] = useState<Theme>('dark');
@@ -80,6 +81,26 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
+  // New useEffect to listen for reservations for the current user
+useEffect(() => {
+  if (user && user !== 'loading') {
+      const q = query(
+          collection(db, 'reservations'),
+          where('userId', '==', user.uid),
+          orderBy('startTime', 'desc')
+      );
+
+      const unsubscribe = onSnapshot(q, (querySnapshot) => {
+          const res = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Reservation[];
+          setUserReservations(res);
+      });
+
+      return () => unsubscribe();
+  } else {
+      setUserReservations([]); // Clear reservations on logout
+  }
+}, [user]);
+
   // Listen for real-time parking lot updates
   useEffect(() => {
     const q = collection(db, 'parkingLots');
@@ -114,26 +135,72 @@ const App = () => {
   };
 
   const handleConfirmReservation = async (lotId: string, slotId: string, hours: number) => {
-      try {
-        const makeReservation = httpsCallable(functions, 'handleReservationPayment');
-        await makeReservation({ lotId, slotId, hours });
-        
-        // UI can optimistically update or wait for Firestore listener to catch changes.
-        // For now, let's trigger routing.
-        const userLocation = geolocation.data?.coords;
-        const destinationLot = parkingLots.find(l => l.id === lotId);
+if (!user || user === 'loading') {
+  alert("You must be logged in to make a reservation.");
+  return;
+}
 
-        if (userLocation && destinationLot) {
-            setRoute({
-                from: [userLocation.latitude, userLocation.longitude],
-                to: [destinationLot.location.latitude, destinationLot.location.longitude]
-            });
-            setActiveTab('map');
-        }
-      } catch (error) {
-        console.error("Reservation failed:", error);
-        alert("Could not make reservation. Please try again.");
-      }
+const lotDocRef = doc(db, 'parkingLots', lotId);
+try {
+  await runTransaction(db, async (transaction) => {
+    const lotDoc = await transaction.get(lotDocRef);
+    if (!lotDoc.exists()) {
+      throw new Error("Parking lot does not exist!");
+    }
+
+    const lotData = lotDoc.data() as Omit<ParkingLot, 'id'>;
+    const slotIndex = lotData.slots.findIndex(s => s.id === slotId);
+
+    if (slotIndex === -1) {
+      throw new Error("Parking slot not found!");
+    }
+
+    if (lotData.slots[slotIndex].isOccupied) {
+      throw new Error("This slot has just been taken! Please select another one.");
+    }
+
+    // Update the slot in memory
+    lotData.slots[slotIndex].isOccupied = true;
+
+    const startTime = new Date();
+    const endTime = new Date(startTime.getTime() + hours * 60 * 60 * 1000);
+
+    // 1. Update the parking lot document in the transaction
+    transaction.update(lotDocRef, { slots: lotData.slots });
+
+    // 2. Create the new reservation document in the transaction
+    const newReservationRef = doc(collection(db, 'reservations'));
+    const newReservation = {
+      userId: user.uid,
+      parkingLotId: lotId,
+      parkingLotName: lotData.name,
+      slotId: slotId,
+      startTime: startTime,
+      endTime: endTime,
+      durationHours: hours,
+      amountPaid: hours * lotData.hourlyRate,
+      status: 'active' as const,
+    };
+    transaction.set(newReservationRef, newReservation);
+  });
+
+  console.log("Reservation successful!");
+  // The rest of the logic for setting the route remains the same...
+  const userLocation = geolocation.data?.coords;
+  const destinationLot = parkingLots.find(l => l.id === lotId);
+
+  if (userLocation && destinationLot) {
+    setRoute({
+      from: [userLocation.latitude, userLocation.longitude],
+      to: [destinationLot.location.latitude, destinationLot.location.longitude]
+    });
+    setActiveTab('map');
+  }
+
+} catch (error) {
+  console.error("Reservation failed:", error);
+  alert(`Could not make reservation: ${error instanceof Error ? error.message : String(error)}`);
+}
   };
   
   const handleArrived = () => {
@@ -148,11 +215,15 @@ const App = () => {
       );
   }
 
+const fullUserWithReservations = (user && user !== 'loading')
+  ? { ...user, reservations: userReservations }
+  : null;
+
   const renderScreen = () => {
     switch (activeTab) {
       case 'home':
         return <HomeScreen 
-                  user={user} 
+                  user={fullUserWithReservations}
                   parkingLots={parkingLots} 
                   onFindParking={() => setActiveTab('map')} 
                   onEditDetails={() => setIsUserDetailsModalOpen(true)}
@@ -168,12 +239,12 @@ const App = () => {
                     onLoginSuccess={() => { /* onAuthStateChanged handles this */ }}
                 />;
       case 'notifications':
-        return <NotificationsScreen user={user} />;
+        return <NotificationsScreen user={fullUserWithReservations} />;
       case 'settings':
-        return <SettingsScreen user={user} onThemeChange={setTheme} onLogout={handleLogout} onAdminLogin={() => setIsAdminLoginModalOpen(true)} onUserDetailsUpdate={setUser} />;
+        return <SettingsScreen user={fullUserWithReservations} onThemeChange={setTheme} onLogout={handleLogout} onAdminLogin={() => setIsAdminLoginModalOpen(true)} onUserDetailsUpdate={setUser} />;
       default:
         return <HomeScreen 
-                  user={user} 
+                  user={fullUserWithReservations}
                   parkingLots={parkingLots} 
                   onFindParking={() => setActiveTab('map')} 
                   onEditDetails={() => setIsUserDetailsModalOpen(true)}

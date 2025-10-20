@@ -22,7 +22,6 @@ export interface User {
   email: string;
   carPlate: string;
   ecocashNumber: string;
-  reservations: Reservation[];
 }
 
 export interface ParkingSlot {
